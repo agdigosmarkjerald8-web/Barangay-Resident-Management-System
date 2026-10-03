@@ -1,10 +1,10 @@
 /**
  * BARANGAY RESIDENT MANAGEMENT SYSTEM
  * Single Monolithic Server Application (Express.js + MySQL Database)
- * Designed for Deployment with MySQL Database Backend
+ * Designed for Deployment on Render + MySQL Database
  */
 
-require('dotenv').config(); 
+require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const cookieParser = require('cookie-parser');
@@ -18,20 +18,20 @@ const multer = require('multer');
 // ==========================================
 // ENVIRONMENT & SYSTEM INITIALIZATION
 // ==========================================
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 18896;
 const JWT_SECRET = process.env.JWT_SECRET || 'barangay-system-super-secure-jwt-secret-key-2026';
 
 const dbConfig = {
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
+  host: process.env.DB_HOST || '',
+  user: process.env.DB_USER || '',
   password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'barangay_db',
+  database: process.env.DB_NAME || '',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
 };
 
-const pool = mysql.createPool(dbConfig);
+const db = mysql.createPool(dbConfig);
 const app = express();
 
 const upload = multer({ limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB limit
@@ -54,8 +54,9 @@ const authenticateToken = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    const [rows] = await pool.query('SELECT * FROM users WHERE id = ?', [decoded.userId]);
+    const [rows] = await db.execute('SELECT * FROM users WHERE id = ? LIMIT 1', [decoded.userId]);
     const user = rows[0];
+
     if (!user || user.status !== 'Active') {
       res.clearCookie('token');
       if (req.accepts('html')) return res.redirect('/login');
@@ -81,19 +82,15 @@ const requireRole = (allowedRoles) => {
 
 const logActivity = async (userId, action, details = '', ip = '') => {
   try {
-    await pool.query('INSERT INTO user_activity_logs (user_id, action, details, ip_address) VALUES (?, ?, ?, ?)', [userId, action, details, ip]);
+    await db.execute('INSERT INTO user_activity_logs (user_id, action, details, ip_address) VALUES (?, ?, ?, ?)', [userId, action, details, ip]);
   } catch (err) {
     console.error('Error writing activity log:', err);
   }
 };
 
 // ==========================================
-// CONSTANTS & LOGIC CONSTANTS
-// ==========================================
-const DEFAULT_LOGIN_BG = 'https://scontent.fmnl33-4.fna.fbcdn.net/v/t39.30808-6/825351115_2246821486242027_8708722577315615068_n.jpg?stp=dst-jpg_tt6&cstp=mx1060x992&ctp=s1060x992&_nc_cat=110&_nc_map=urlgen_bucketless&ccb=1-7&_nc_sid=127cfc&_nc_eui2=AeHpk_cBk3_TrQDPpACbx68fjQwB0jaJYXWNDAHSNolhdfR3vwGsh31cD5-A7Nb3qzplS4aAfDftzWcsmyDXAsnf&_nc_ohc=zPWWgjIxijoQ7kNvwFRKLVb&_nc_oc=AdpZBQL9o8MZk4xIiBL9pR6vKPkB7bvmqkM4R26op6LLy9SHE6Qd009laEUr-_vlHfE&_nc_zt=23&_nc_ht=scontent.fmnl33-4.fna&_nc_gid=A3E_5De3Kcc14pam4H4mgA&_nc_ss=7b2a8&oh=00_AQN0FSG7xTxJGzBY3rAhHoIZqJoNuUuFP2P_2cdm47NTxw&oe=6AC4DD7C';
-
-// ==========================================
 // INLINE CORE HTML/CSS SYSTEM STYLES ENGINE
+// Palette Refined with Light Green & Light Blue Themes
 // ==========================================
 const renderSystemHead = (title) => `
 <!DOCTYPE html>
@@ -179,6 +176,7 @@ const renderSystemHead = (title) => `
       background: linear-gradient(135deg, #ffffff 0%, var(--light-green) 100%);
     }
 
+    /* Standardized CR80 ID Card Frame (3.375in x 2.125in) */
     .id-card-frame {
       width: 3.375in;
       height: 2.125in;
@@ -276,6 +274,7 @@ const renderSystemFooter = () => `
 </html>
 `;
 
+// Layout Wrapper with Responsive Sidebar
 const renderAppLayout = (req, activeModule, contentHtml, settings = {}) => {
   const user = req.user || {};
   const isAdmin = ['Super Admin', 'Barangay Admin', 'Barangay Secretary', 'Barangay Staff'].includes(user.role);
@@ -322,6 +321,7 @@ const renderAppLayout = (req, activeModule, contentHtml, settings = {}) => {
     ${renderSystemHead(settings.barangay_name || 'Barangay Portal')}
     <div class="container-fluid p-0">
       <div class="row g-0">
+        <!-- Sidebar Navigation -->
         <div class="col-md-3 col-lg-2 sidebar d-flex flex-column p-3 no-print">
           <div class="d-flex align-items-center mb-4 px-2">
             ${settings.barangay_logo ? `<img src="${settings.barangay_logo}" class="me-2 rounded-circle shadow-sm" style="width: 70px; height: 70px; object-fit: cover; border: none;">` : '<i class="bi bi-building fs-1 me-2 text-accent-green"></i>'}
@@ -352,6 +352,7 @@ const renderAppLayout = (req, activeModule, contentHtml, settings = {}) => {
           </div>
         </div>
 
+        <!-- Main Content Area -->
         <div class="col-md-9 col-lg-10 p-4 overflow-y-auto" style="height: 100vh; background-color: #f4f9f6;">
           <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom no-print">
             <h4 class="fw-bold text-primary-blue m-0">${settings.system_name || 'Barangay Resident Management System'}</h4>
@@ -371,7 +372,7 @@ const renderAppLayout = (req, activeModule, contentHtml, settings = {}) => {
 app.use(async (req, res, next) => {
   if (req.path.startsWith('/api/') || req.path.startsWith('/public/')) return next();
   try {
-    const [rows] = await pool.query('SELECT * FROM system_settings LIMIT 1');
+    const [rows] = await db.execute('SELECT * FROM system_settings LIMIT 1');
     const settings = rows[0];
     if ((!settings || !settings.setup_completed) && req.path !== '/setup') {
       return res.redirect('/setup');
@@ -382,8 +383,9 @@ app.use(async (req, res, next) => {
   next();
 });
 
+// Helper: Fetch Global Barangay Settings
 const getSettings = async () => {
-  const [rows] = await pool.query('SELECT * FROM system_settings LIMIT 1');
+  const [rows] = await db.execute('SELECT * FROM system_settings LIMIT 1');
   return rows[0] || {};
 };
 
@@ -447,8 +449,9 @@ app.get('/setup', async (req, res) => {
 app.post('/api/setup', async (req, res) => {
   const { barangay_name, municipality, province, full_name, username, email, password } = req.body;
   try {
-    const [setRows] = await pool.query('SELECT * FROM system_settings LIMIT 1');
-    const existingSettings = setRows[0];
+    const [existingRows] = await db.execute('SELECT * FROM system_settings LIMIT 1');
+    const existingSettings = existingRows[0];
+
     if (existingSettings && existingSettings.setup_completed) {
       return res.status(400).send('Setup has already been completed.');
     }
@@ -456,21 +459,24 @@ app.post('/api/setup', async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const password_hash = await bcrypt.hash(password, salt);
 
-    await pool.query('INSERT INTO users (username, email, password_hash, full_name, role, status) VALUES (?, ?, ?, ?, ?, ?)', [
-      username, email, password_hash, full_name, 'Super Admin', 'Active'
-    ]);
+    await db.execute(
+      'INSERT INTO users (username, email, password_hash, full_name, role, status) VALUES (?, ?, ?, ?, ?, ?)',
+      [username, email, password_hash, full_name, 'Super Admin', 'Active']
+    );
 
     if (existingSettings) {
-      await pool.query('UPDATE system_settings SET barangay_name = ?, municipality = ?, province = ?, setup_completed = TRUE, updated_at = NOW() WHERE id = ?', [
-        barangay_name, municipality, province, existingSettings.id
-      ]);
+      await db.execute(
+        'UPDATE system_settings SET barangay_name = ?, municipality = ?, province = ?, setup_completed = TRUE, updated_at = NOW() WHERE id = ?',
+        [barangay_name, municipality, province, existingSettings.id]
+      );
     } else {
-      await pool.query('INSERT INTO system_settings (barangay_name, municipality, province, setup_completed) VALUES (?, ?, ?, TRUE)', [
-        barangay_name, municipality, province
-      ]);
+      await db.execute(
+        'INSERT INTO system_settings (barangay_name, municipality, province, setup_completed) VALUES (?, ?, ?, TRUE)',
+        [barangay_name, municipality, province]
+      );
     }
 
-    await pool.query('INSERT INTO puroks (name, description) VALUES (?, ?), (?, ?), (?, ?)', [
+    await db.execute('INSERT INTO puroks (name, description) VALUES (?, ?), (?, ?), (?, ?)', [
       'Purok 1', 'Zone 1', 'Purok 2', 'Zone 2', 'Purok 3', 'Zone 3'
     ]);
 
@@ -499,13 +505,18 @@ app.get('/login', async (req, res) => {
   const settings = await getSettings();
   const bgImg = 'https://scontent.fmnl33-4.fna.fbcdn.net/v/t39.30808-6/825351115_2246821486242027_8708722577315615068_n.jpg?stp=dst-jpg_tt6&cstp=mx1060x992&ctp=s1060x992&_nc_cat=110&_nc_map=urlgen_bucketless&ccb=1-7&_nc_sid=127cfc&_nc_eui2=AeHpk_cBk3_TrQDPpACbx68fjQwB0jaJYXWNDAHSNolhdfR3vwGsh31cD5-A7Nb3qzplS4aAfDftzWcsmyDXAsnf&_nc_ohc=zPWWgjIxijoQ7kNvwFRKLVb&_nc_oc=AdpZBQL9o8MZk4xIiBL9pR6vKPkB7bvmqkM4R26op6LLy9SHE6Qd009laEUr-_vlHfE&_nc_zt=23&_nc_ht=scontent.fmnl33-4.fna&_nc_gid=A3E_5De3Kcc14pam4H4mgA&_nc_ss=7b2a8&oh=00_AQN0FSG7xTxJGzBY3rAhHoIZqJoNuUuFP2P_2cdm47NTxw&oe=6AC4DD7C';
   
-  const [officials] = await pool.query('SELECT * FROM barangay_officials');
+  const [officials] = await db.execute('SELECT * FROM barangay_officials');
 
   res.send(`
     ${renderSystemHead('Login')}
     <style>
-      html { scroll-behavior: smooth; }
-      body { background-color: #0b2545; overflow-x: hidden; }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        background-color: #0b2545;
+        overflow-x: hidden;
+      }
       .login-section {
         min-height: 100vh;
         background: linear-gradient(180deg, rgba(46, 204, 113, 0.75), rgba(32, 84, 147, 0.75)), url('${bgImg}');
@@ -529,7 +540,9 @@ app.get('/login', async (req, res) => {
         overflow: hidden;
         transition: transform 0.3s ease;
       }
-      .horizontal-login-card:hover { transform: translateY(-4px); }
+      .horizontal-login-card:hover {
+        transform: translateY(-4px);
+      }
       .brand-logo-img {
         width: 140px;
         height: 140px;
@@ -538,8 +551,15 @@ app.get('/login', async (req, res) => {
         border: none;
         box-shadow: 0 6px 15px rgba(32, 84, 147, 0.25);
       }
-      .form-control-horizontal { height: 48px; border-radius: 8px; font-size: 1rem; }
-      .input-group-horizontal { border-radius: 8px; overflow: hidden; }
+      .form-control-horizontal {
+        height: 48px;
+        border-radius: 8px;
+        font-size: 1rem;
+      }
+      .input-group-horizontal {
+        border-radius: 8px;
+        overflow: hidden;
+      }
       .input-group-text {
         background-color: #205493 !important;
         color: white !important;
@@ -682,8 +702,9 @@ app.get('/login', async (req, res) => {
 app.post('/api/login', async (req, res) => {
   const { identifier, password } = req.body;
   try {
-    const [rows] = await pool.query('SELECT * FROM users WHERE username = ? OR email = ?', [identifier, identifier]);
+    const [rows] = await db.execute('SELECT * FROM users WHERE username = ? OR email = ? LIMIT 1', [identifier, identifier]);
     const user = rows[0];
+
     if (!user) {
       return res.status(400).send('<script>alert("Invalid identifier or password."); window.location="/login";</script>');
     }
@@ -700,7 +721,7 @@ app.post('/api/login', async (req, res) => {
     const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '12h' });
     res.cookie('token', token, { httpOnly: true, maxAge: 12 * 3600 * 1000 });
 
-    await pool.query('INSERT INTO login_history (user_id, status) VALUES (?, ?)', [user.id, 'Success']);
+    await db.execute('INSERT INTO login_history (user_id, status) VALUES (?, ?)', [user.id, 'Success']);
     await logActivity(user.id, 'User Login', 'User authenticated successfully.');
 
     if (['Super Admin', 'Barangay Admin', 'Barangay Secretary', 'Barangay Staff'].includes(user.role)) {
@@ -715,7 +736,7 @@ app.post('/api/login', async (req, res) => {
 });
 
 app.get('/register', async (req, res) => {
-  const [puroks] = await pool.query('SELECT * FROM puroks');
+  const [puroks] = await db.execute('SELECT * FROM puroks');
   const settings = await getSettings();
 
   res.send(`
@@ -840,33 +861,34 @@ app.post('/api/register', async (req, res) => {
       return res.status(400).send('<script>alert("Please fill in all required fields."); window.history.back();</script>');
     }
 
-    const [existingUsers] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
-    if (existingUsers.length > 0) {
+    const [existingRows] = await db.execute('SELECT * FROM users WHERE email = ? LIMIT 1', [email]);
+    if (existingRows.length > 0) {
       return res.status(400).send('<script>alert("Email is already registered."); window.location="/register";</script>');
     }
 
     const year = new Date().getFullYear();
-    const [countRows] = await pool.query('SELECT COUNT(*) as cnt FROM residents');
-    const sequenceNum = String((countRows[0].cnt || 0) + 1).padStart(6, '0');
+    const [countRows] = await db.execute('SELECT COUNT(*) as total FROM residents');
+    const sequenceNum = String((countRows[0].total || 0) + 1).padStart(6, '0');
     const resident_number = `BRGY-${year}-${sequenceNum}`;
 
     const dob = new Date(date_of_birth);
     const age = new Date().getFullYear() - dob.getFullYear();
     const is_senior_citizen = age >= 60;
 
-    const [resResult] = await pool.query(`
-      INSERT INTO residents (resident_number, first_name, middle_name, last_name, suffix, date_of_birth, gender, civil_status, purok_id, address, contact_number, occupation, email, resident_status, is_senior_citizen)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', ?)
-    `, [resident_number, first_name, middle_name, last_name, suffix, date_of_birth, gender, civil_status, purok_id, address, contact_number, occupation, email, is_senior_citizen]);
-
+    const [resResult] = await db.execute(
+      `INSERT INTO residents (resident_number, first_name, middle_name, last_name, suffix, date_of_birth, gender, civil_status, purok_id, address, contact_number, occupation, email, resident_status, is_senior_citizen) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', ?)`,
+      [resident_number, first_name, middle_name, last_name, suffix, date_of_birth, gender, civil_status, purok_id, address, contact_number, occupation, email, is_senior_citizen]
+    );
     const residentId = resResult.insertId;
 
     const salt = await bcrypt.genSalt(10);
     const password_hash = await bcrypt.hash(password, salt);
 
-    await pool.query('INSERT INTO users (username, email, password_hash, full_name, role, status, resident_id) VALUES (?, ?, ?, ?, ?, ?, ?)', [
-      email, email, password_hash, `${first_name} ${last_name}`, 'Resident', 'Pending', residentId
-    ]);
+    await db.execute(
+      'INSERT INTO users (username, email, password_hash, full_name, role, status, resident_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [email, email, password_hash, `${first_name} ${last_name}`, 'Resident', 'Pending', residentId]
+    );
 
     res.send(`
       ${renderSystemHead('Registration Pending')}
@@ -898,65 +920,63 @@ app.get('/admin/dashboard', authenticateToken, requireRole(['Super Admin', 'Bara
   const settings = await getSettings();
 
   const [
-    [[totRes]],
-    [[actRes]],
-    [[pendRes]],
-    [[totHH]],
-    [[totPrk]],
-    [[seniors]],
-    [[pwds]],
-    [[solo]],
-    [[pendCerts]],
-    [[pendBlot]]
+    [[{ count: totalResidents }]],
+    [[{ count: activeResidents }]],
+    [[{ count: pendingRegistrations }]],
+    [[{ count: totalHouseholds }]],
+    [[{ count: totalPuroks }]],
+    [[{ count: seniorCitizens }]],
+    [[{ count: pwds }]],
+    [[{ count: soloParents }]],
+    [[{ count: pendingCerts }]],
+    [[{ count: pendingBlotters }]]
   ] = await Promise.all([
-    pool.query('SELECT COUNT(*) as count FROM residents'),
-    pool.query('SELECT COUNT(*) as count FROM residents WHERE resident_status = "Active"'),
-    pool.query('SELECT COUNT(*) as count FROM residents WHERE resident_status = "Pending"'),
-    pool.query('SELECT COUNT(*) as count FROM households'),
-    pool.query('SELECT COUNT(*) as count FROM puroks'),
-    pool.query('SELECT COUNT(*) as count FROM residents WHERE is_senior_citizen = TRUE'),
-    pool.query('SELECT COUNT(*) as count FROM residents WHERE is_pwd = TRUE'),
-    pool.query('SELECT COUNT(*) as count FROM residents WHERE is_solo_parent = TRUE'),
-    pool.query('SELECT COUNT(*) as count FROM certificate_requests WHERE status = "SUBMITTED"'),
-    pool.query('SELECT COUNT(*) as count FROM complaints WHERE status = "SUBMITTED"')
+    db.execute('SELECT COUNT(*) as count FROM residents'),
+    db.execute('SELECT COUNT(*) as count FROM residents WHERE resident_status = "Active"'),
+    db.execute('SELECT COUNT(*) as count FROM residents WHERE resident_status = "Pending"'),
+    db.execute('SELECT COUNT(*) as count FROM households'),
+    db.execute('SELECT COUNT(*) as count FROM puroks'),
+    db.execute('SELECT COUNT(*) as count FROM residents WHERE is_senior_citizen = TRUE'),
+    db.execute('SELECT COUNT(*) as count FROM residents WHERE is_pwd = TRUE'),
+    db.execute('SELECT COUNT(*) as count FROM residents WHERE is_solo_parent = TRUE'),
+    db.execute('SELECT COUNT(*) as count FROM certificate_requests WHERE status = "SUBMITTED"'),
+    db.execute('SELECT COUNT(*) as count FROM complaints WHERE status = "SUBMITTED"')
   ]);
 
-  const [logsRows] = await pool.query(`
-    SELECT l.*, u.full_name as user_full_name 
-    FROM user_activity_logs l 
+  const [recentLogs] = await db.execute(`
+    SELECT l.*, u.full_name FROM user_activity_logs l 
     LEFT JOIN users u ON l.user_id = u.id 
     ORDER BY l.created_at DESC LIMIT 5
   `);
-  const recentLogs = logsRows.map(l => ({ ...l, users: { full_name: l.user_full_name } }));
 
   const html = `
     <div class="row g-3 mb-4">
       <div class="col-md-3">
         <div class="card card-custom p-3 stat-card">
           <span class="text-muted small fw-bold">TOTAL RESIDENTS</span>
-          <h2 class="fw-bold text-primary-blue m-0">${totRes.count || 0}</h2>
-          <small class="text-accent-green fw-bold">${actRes.count || 0} Active / ${pendRes.count || 0} Pending</small>
+          <h2 class="fw-bold text-primary-blue m-0">${totalResidents || 0}</h2>
+          <small class="text-accent-green fw-bold">${activeResidents || 0} Active / ${pendingRegistrations || 0} Pending</small>
         </div>
       </div>
       <div class="col-md-3">
         <div class="card card-custom p-3 stat-card green">
           <span class="text-muted small fw-bold">HOUSEHOLDS & PUROKS</span>
-          <h2 class="fw-bold text-accent-green m-0">${totHH.count || 0}</h2>
-          <small class="text-muted">${totPrk.count || 0} Total Registered Puroks</small>
+          <h2 class="fw-bold text-accent-green m-0">${totalHouseholds || 0}</h2>
+          <small class="text-muted">${totalPuroks || 0} Total Registered Puroks</small>
         </div>
       </div>
       <div class="col-md-3">
         <div class="card card-custom p-3 stat-card">
           <span class="text-muted small fw-bold">PENDING REQUESTS</span>
-          <h2 class="fw-bold text-primary-blue m-0">${pendCerts.count || 0}</h2>
+          <h2 class="fw-bold text-primary-blue m-0">${pendingCerts || 0}</h2>
           <small class="text-danger fw-bold">Certificate Applications</small>
         </div>
       </div>
       <div class="col-md-3">
         <div class="card card-custom p-3 stat-card green">
           <span class="text-muted small fw-bold">SPECIAL SECTORS</span>
-          <h2 class="fw-bold text-accent-green m-0">${(seniors.count || 0) + (pwds.count || 0) + (solo.count || 0)}</h2>
-          <small class="text-muted">Seniors: ${seniors.count || 0} | PWD: ${pwds.count || 0} | Solo: ${solo.count || 0}</small>
+          <h2 class="fw-bold text-accent-green m-0">${(seniorCitizens || 0) + (pwds || 0) + (soloParents || 0)}</h2>
+          <small class="text-muted">Seniors: ${seniorCitizens || 0} | PWD: ${pwds || 0} | Solo: ${soloParents || 0}</small>
         </div>
       </div>
     </div>
@@ -978,7 +998,7 @@ app.get('/admin/dashboard', authenticateToken, requireRole(['Super Admin', 'Bara
               <tbody>
                 ${(recentLogs || []).map(log => `
                   <tr>
-                    <td class="fw-semibold">${log.users ? log.users.full_name : 'System'}</td>
+                    <td class="fw-semibold">${log.full_name || 'System'}</td>
                     <td><span class="badge bg-primary-blue text-white">${log.action}</span></td>
                     <td class="small">${log.details || '-'}</td>
                     <td class="small text-muted">${new Date(log.created_at).toLocaleString()}</td>
@@ -994,8 +1014,8 @@ app.get('/admin/dashboard', authenticateToken, requireRole(['Super Admin', 'Bara
         <div class="card card-custom p-4">
           <h5 class="fw-bold text-primary-blue mb-3"><i class="bi bi-lightning-charge me-2"></i>Quick Actions</h5>
           <div class="d-grid gap-2">
-            <a href="/admin/residents?filter=Pending" class="btn btn-outline-primary text-start"><i class="bi bi-person-check me-2"></i> Review Pending Registrations (${pendRes.count || 0})</a>
-            <a href="/admin/certificates" class="btn btn-outline-success text-start"><i class="bi bi-file-earmark-check me-2"></i> Process Certificates (${pendCerts.count || 0})</a>
+            <a href="/admin/residents?filter=Pending" class="btn btn-outline-primary text-start"><i class="bi bi-person-check me-2"></i> Review Pending Registrations (${pendingRegistrations || 0})</a>
+            <a href="/admin/certificates" class="btn btn-outline-success text-start"><i class="bi bi-file-earmark-check me-2"></i> Process Certificates (${pendingCerts || 0})</a>
             <a href="/scanner" class="btn btn-primary-custom text-center py-2 fw-bold text-white"><i class="bi bi-qr-code-scan me-2"></i> Open QR Verification Scanner</a>
           </div>
         </div>
@@ -1014,32 +1034,23 @@ app.get('/admin/residents', authenticateToken, requireRole(['Super Admin', 'Bara
   const search = req.query.search || '';
   const filter = req.query.filter || 'Active';
 
-  let sql = `
-    SELECT r.*, p.name as purok_name 
-    FROM residents r 
-    LEFT JOIN puroks p ON r.purok_id = p.id
-  `;
+  let sql = `SELECT r.*, p.name as purok_name FROM residents r LEFT JOIN puroks p ON r.purok_id = p.id WHERE 1=1`;
   let params = [];
-  let conditions = [];
 
   if (filter !== 'All') {
-    conditions.push('r.resident_status = ?');
+    sql += ` AND r.resident_status = ?`;
     params.push(filter);
   }
 
   if (search) {
-    conditions.push('(r.first_name LIKE ? OR r.last_name LIKE ? OR r.resident_number LIKE ?)');
+    sql += ` AND (r.first_name LIKE ? OR r.last_name LIKE ? OR r.resident_number LIKE ?)`;
     params.push(`%${search}%`, `%${search}%`, `%${search}%`);
   }
 
-  if (conditions.length > 0) {
-    sql += ' WHERE ' + conditions.join(' AND ');
-  }
-  sql += ' ORDER BY r.created_at DESC';
+  sql += ` ORDER BY r.created_at DESC`;
 
-  const [residentsRows] = await pool.query(sql, params);
-  const residents = residentsRows.map(r => ({ ...r, puroks: { name: r.purok_name } }));
-  const [puroks] = await pool.query('SELECT * FROM puroks');
+  const [residents] = await db.execute(sql, params);
+  const [puroks] = await db.execute('SELECT * FROM puroks');
 
   const html = `
     <div class="card card-custom p-4">
@@ -1087,7 +1098,7 @@ app.get('/admin/residents', authenticateToken, requireRole(['Super Admin', 'Bara
                     ${r.photo_url ? `<img src="${r.photo_url}" class="rounded-circle me-2" style="width:30px; height:30px; object-fit:cover;">` : ''}
                     ${r.first_name} ${r.middle_name || ''} ${r.last_name} ${r.suffix || ''}
                   </td>
-                  <td>${r.puroks ? r.puroks.name : '-'}</td>
+                  <td>${r.purok_name || '-'}</td>
                   <td>${r.gender} (${age} yrs)</td>
                   <td>
                     <span class="badge ${r.resident_status === 'Active' ? 'bg-success' : (r.resident_status === 'Pending' ? 'bg-warning text-dark' : 'bg-secondary')}">
@@ -1111,6 +1122,7 @@ app.get('/admin/residents', authenticateToken, requireRole(['Super Admin', 'Bara
       </div>
     </div>
 
+    <!-- Modal: Add Resident -->
     <div class="modal fade" id="addResidentModal" tabindex="-1">
       <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -1159,17 +1171,18 @@ app.post('/api/admin/resident/add', authenticateToken, requireRole(['Super Admin
   const { first_name, middle_name, last_name, date_of_birth, gender, civil_status, purok_id, address, contact_number, email } = req.body;
   try {
     const year = new Date().getFullYear();
-    const [countRows] = await pool.query('SELECT COUNT(*) as cnt FROM residents');
-    const sequenceNum = String((countRows[0].cnt || 0) + 1).padStart(6, '0');
+    const [countRows] = await db.execute('SELECT COUNT(*) as total FROM residents');
+    const sequenceNum = String((countRows[0].total || 0) + 1).padStart(6, '0');
     const resident_number = `BRGY-${year}-${sequenceNum}`;
 
     const dob = new Date(date_of_birth);
     const age = new Date().getFullYear() - dob.getFullYear();
 
-    await pool.query(`
-      INSERT INTO residents (resident_number, first_name, middle_name, last_name, date_of_birth, gender, civil_status, purok_id, address, contact_number, email, resident_status, is_senior_citizen)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active', ?)
-    `, [resident_number, first_name, middle_name, last_name, date_of_birth, gender, civil_status, purok_id, address, contact_number, email, age >= 60]);
+    await db.execute(
+      `INSERT INTO residents (resident_number, first_name, middle_name, last_name, date_of_birth, gender, civil_status, purok_id, address, contact_number, email, resident_status, is_senior_citizen) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active', ?)`,
+      [resident_number, first_name, middle_name, last_name, date_of_birth, gender, civil_status, purok_id, address, contact_number, email, age >= 60]
+    );
 
     await logActivity(req.user.id, 'Add Resident', `Added new resident record: ${first_name} ${last_name}`);
     res.redirect('/admin/residents');
@@ -1180,8 +1193,8 @@ app.post('/api/admin/resident/add', authenticateToken, requireRole(['Super Admin
 
 app.get('/api/admin/resident/approve/:id', authenticateToken, requireRole(['Super Admin', 'Barangay Admin', 'Barangay Secretary']), async (req, res) => {
   try {
-    await pool.query('UPDATE residents SET resident_status = "Active" WHERE id = ?', [req.params.id]);
-    await pool.query('UPDATE users SET status = "Active" WHERE resident_id = ?', [req.params.id]);
+    await db.execute('UPDATE residents SET resident_status = "Active" WHERE id = ?', [req.params.id]);
+    await db.execute('UPDATE users SET status = "Active" WHERE resident_id = ?', [req.params.id]);
     await logActivity(req.user.id, 'Approve Resident', `Approved resident ID: ${req.params.id}`);
     res.redirect('/admin/residents?filter=Pending');
   } catch (err) {
@@ -1191,7 +1204,7 @@ app.get('/api/admin/resident/approve/:id', authenticateToken, requireRole(['Supe
 
 app.get('/api/admin/resident/archive/:id', authenticateToken, requireRole(['Super Admin', 'Barangay Admin']), async (req, res) => {
   try {
-    await pool.query('UPDATE residents SET resident_status = "Archived" WHERE id = ?', [req.params.id]);
+    await db.execute('UPDATE residents SET resident_status = "Archived" WHERE id = ?', [req.params.id]);
     await logActivity(req.user.id, 'Archive Resident', `Archived resident ID: ${req.params.id}`);
     res.redirect('/admin/residents');
   } catch (err) {
@@ -1201,18 +1214,16 @@ app.get('/api/admin/resident/archive/:id', authenticateToken, requireRole(['Supe
 
 app.get('/admin/resident/view/:id', authenticateToken, requireRole(['Super Admin', 'Barangay Admin', 'Barangay Secretary', 'Barangay Staff']), async (req, res) => {
   const settings = await getSettings();
-  const [resRows] = await pool.query(`
-    SELECT r.*, p.name as purok_name, h.household_number 
-    FROM residents r 
+  const [resRows] = await db.execute(`
+    SELECT r.*, p.name as purok_name, h.household_number FROM residents r 
     LEFT JOIN puroks p ON r.purok_id = p.id 
-    LEFT JOIN households h ON r.id = h.id 
-    WHERE r.id = ?
+    LEFT JOIN households h ON r.household_id = h.id 
+    WHERE r.id = ? LIMIT 1
   `, [req.params.id]);
-  const rRow = resRows[0];
-  if (!rRow) return res.status(404).send('Resident not found');
-  const resident = { ...rRow, puroks: { name: rRow.purok_name }, households: { household_number: rRow.household_number } };
+  const resident = resRows[0];
+  if (!resident) return res.status(404).send('Resident not found');
 
-  const [certs] = await pool.query('SELECT * FROM certificate_requests WHERE resident_id = ?', [resident.id]);
+  const [certs] = await db.execute('SELECT * FROM certificate_requests WHERE resident_id = ?', [resident.id]);
 
   const html = `
     <div class="row g-4">
@@ -1221,7 +1232,7 @@ app.get('/admin/resident/view/:id', authenticateToken, requireRole(['Super Admin
           <img src="${resident.photo_url || 'https://via.placeholder.com/150'}" class="rounded-circle mx-auto mb-3" style="width: 140px; height: 140px; object-fit: cover; border: 3px solid #205493;">
           <h5 class="fw-bold m-0">${resident.first_name} ${resident.last_name}</h5>
           <span class="text-primary-blue fw-bold">${resident.resident_number}</span>
-          <p class="text-muted small">${resident.puroks ? resident.puroks.name : 'No Purok'}</p>
+          <p class="text-muted small">${resident.purok_name || 'No Purok'}</p>
 
           <form action="/api/admin/resident/upload-photo/${resident.id}" method="POST" enctype="multipart/form-data" class="mt-3">
             <label class="form-label small fw-bold">Update Resident Photo</label>
@@ -1265,7 +1276,7 @@ app.post('/api/admin/resident/upload-photo/:id', authenticateToken, upload.singl
     if (!req.file) return res.status(400).send('No photo uploaded.');
     const base64Data = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
 
-    await pool.query('UPDATE residents SET photo_url = ? WHERE id = ?', [base64Data, req.params.id]);
+    await db.execute('UPDATE residents SET photo_url = ? WHERE id = ?', [base64Data, req.params.id]);
     await logActivity(req.user.id, 'Update Resident Photo', `Updated photo for resident ID ${req.params.id}`);
     res.redirect(`/admin/resident/view/${req.params.id}`);
   } catch (err) {
@@ -1278,12 +1289,12 @@ app.post('/api/admin/resident/upload-photo/:id', authenticateToken, upload.singl
 // ==========================================
 app.get('/admin/puroks', authenticateToken, requireRole(['Super Admin', 'Barangay Admin', 'Barangay Secretary', 'Barangay Staff']), async (req, res) => {
   const settings = await getSettings();
-  const [puroks] = await pool.query('SELECT * FROM puroks');
-  const [residents] = await pool.query('SELECT purok_id FROM residents WHERE resident_status = "Active"');
+  const [puroks] = await db.execute('SELECT * FROM puroks');
+  const [residents] = await db.execute('SELECT purok_id FROM residents WHERE resident_status = "Active" AND purok_id IS NOT NULL');
 
   const purokCounts = {};
   (residents || []).forEach(r => {
-    if (r.purok_id) purokCounts[r.purok_id] = (purokCounts[r.purok_id] || 0) + 1;
+    purokCounts[r.purok_id] = (purokCounts[r.purok_id] || 0) + 1;
   });
 
   const html = `
@@ -1309,6 +1320,7 @@ app.get('/admin/puroks', authenticateToken, requireRole(['Super Admin', 'Baranga
       </div>
     </div>
 
+    <!-- Modal Add Purok -->
     <div class="modal fade" id="addPurokModal" tabindex="-1">
       <div class="modal-dialog">
         <div class="modal-content">
@@ -1335,7 +1347,7 @@ app.get('/admin/puroks', authenticateToken, requireRole(['Super Admin', 'Baranga
 
 app.post('/api/admin/purok/add', authenticateToken, requireRole(['Super Admin', 'Barangay Admin']), async (req, res) => {
   const { name, description } = req.body;
-  await pool.query('INSERT INTO puroks (name, description) VALUES (?, ?)', [name, description]);
+  await db.execute('INSERT INTO puroks (name, description) VALUES (?, ?)', [name, description]);
   res.redirect('/admin/puroks');
 });
 
@@ -1344,13 +1356,8 @@ app.post('/api/admin/purok/add', authenticateToken, requireRole(['Super Admin', 
 // ==========================================
 app.get('/admin/households', authenticateToken, requireRole(['Super Admin', 'Barangay Admin', 'Barangay Secretary', 'Barangay Staff']), async (req, res) => {
   const settings = await getSettings();
-  const [hhRows] = await pool.query(`
-    SELECT h.*, p.name as purok_name 
-    FROM households h 
-    LEFT JOIN puroks p ON h.purok_id = p.id
-  `);
-  const households = hhRows.map(h => ({ ...h, puroks: { name: h.purok_name } }));
-  const [puroks] = await pool.query('SELECT * FROM puroks');
+  const [households] = await db.execute('SELECT h.*, p.name as purok_name FROM households h LEFT JOIN puroks p ON h.purok_id = p.id');
+  const [puroks] = await db.execute('SELECT * FROM puroks');
 
   const html = `
     <div class="card card-custom p-4">
@@ -1375,7 +1382,7 @@ app.get('/admin/households', authenticateToken, requireRole(['Super Admin', 'Bar
               <tr>
                 <td class="fw-bold text-primary-blue">${h.household_number}</td>
                 <td class="fw-semibold">${h.head_resident_name}</td>
-                <td>${h.puroks ? h.puroks.name : '-'}</td>
+                <td>${h.purok_name || '-'}</td>
                 <td>${h.address}</td>
                 <td><span class="badge bg-success">${h.status}</span></td>
               </tr>
@@ -1385,6 +1392,7 @@ app.get('/admin/households', authenticateToken, requireRole(['Super Admin', 'Bar
       </div>
     </div>
 
+    <!-- Modal Add Household -->
     <div class="modal fade" id="addHouseholdModal" tabindex="-1">
       <div class="modal-dialog">
         <div class="modal-content">
@@ -1416,9 +1424,7 @@ app.get('/admin/households', authenticateToken, requireRole(['Super Admin', 'Bar
 app.post('/api/admin/household/add', authenticateToken, requireRole(['Super Admin', 'Barangay Admin', 'Barangay Secretary']), async (req, res) => {
   const { head_resident_name, purok_id, address } = req.body;
   const household_number = `HH-${Date.now().toString().slice(-6)}`;
-  await pool.query('INSERT INTO households (household_number, head_resident_name, purok_id, address) VALUES (?, ?, ?, ?)', [
-    household_number, head_resident_name, purok_id, address
-  ]);
+  await db.execute('INSERT INTO households (household_number, head_resident_name, purok_id, address) VALUES (?, ?, ?, ?)', [household_number, head_resident_name, purok_id, address]);
   res.redirect('/admin/households');
 });
 
@@ -1427,16 +1433,11 @@ app.post('/api/admin/household/add', authenticateToken, requireRole(['Super Admi
 // ==========================================
 app.get('/admin/certificates', authenticateToken, requireRole(['Super Admin', 'Barangay Admin', 'Barangay Secretary', 'Barangay Staff']), async (req, res) => {
   const settings = await getSettings();
-  const [certRows] = await pool.query(`
-    SELECT c.*, r.first_name, r.last_name, r.resident_number 
-    FROM certificate_requests c 
+  const [certs] = await db.execute(`
+    SELECT c.*, r.first_name, r.last_name, r.resident_number FROM certificate_requests c 
     LEFT JOIN residents r ON c.resident_id = r.id 
     ORDER BY c.created_at DESC
   `);
-  const certs = certRows.map(c => ({
-    ...c,
-    residents: { first_name: c.first_name, last_name: c.last_name, resident_number: c.resident_number }
-  }));
 
   const html = `
     <div class="card card-custom p-4">
@@ -1457,7 +1458,7 @@ app.get('/admin/certificates', authenticateToken, requireRole(['Super Admin', 'B
             ${(certs || []).map(c => `
               <tr>
                 <td class="fw-bold text-primary-blue">${c.request_number}</td>
-                <td>${c.residents ? `${c.residents.first_name} ${c.residents.last_name}` : 'Unknown'}</td>
+                <td>${c.first_name ? `${c.first_name} ${c.last_name}` : 'Unknown'}</td>
                 <td><span class="badge bg-light text-dark border">${c.certificate_type}</span></td>
                 <td>${c.purpose}</td>
                 <td>
@@ -1486,7 +1487,7 @@ app.get('/admin/certificates', authenticateToken, requireRole(['Super Admin', 'B
 
 app.get('/api/admin/certificate/update/:id', authenticateToken, requireRole(['Super Admin', 'Barangay Admin', 'Barangay Secretary', 'Barangay Staff']), async (req, res) => {
   const { status } = req.query;
-  await pool.query('UPDATE certificate_requests SET status = ?, updated_at = NOW() WHERE id = ?', [status, req.params.id]);
+  await db.execute('UPDATE certificate_requests SET status = ?, updated_at = NOW() WHERE id = ?', [status, req.params.id]);
   res.redirect('/admin/certificates');
 });
 
@@ -1495,17 +1496,14 @@ app.get('/api/admin/certificate/update/:id', authenticateToken, requireRole(['Su
 // ==========================================
 app.get('/admin/id-generator', authenticateToken, requireRole(['Super Admin', 'Barangay Admin', 'Barangay Secretary', 'Barangay Staff']), async (req, res) => {
   const settings = await getSettings();
-  const [resRows] = await pool.query(`
-    SELECT r.*, p.name as purok_name 
-    FROM residents r 
+  const [residents] = await db.execute(`
+    SELECT r.*, p.name as purok_name FROM residents r 
     LEFT JOIN puroks p ON r.purok_id = p.id 
-    WHERE r.resident_status = 'Active' 
-    LIMIT 8
+    WHERE r.resident_status = 'Active' LIMIT 8
   `);
-  const residents = resRows.map(r => ({ ...r, puroks: { name: r.purok_name } }));
 
   const residentCards = await Promise.all((residents || []).map(async (r) => {
-    const qrDataUrl = await QRCode.toDataURL(r.qr_token || r.id, { margin: 0, width: 250 });
+    const qrDataUrl = await QRCode.toDataURL(r.qr_token || String(r.id), { margin: 0, width: 250 });
     return { ...r, qrDataUrl };
   }));
 
@@ -1538,7 +1536,7 @@ app.get('/admin/id-generator', authenticateToken, requireRole(['Super Admin', 'B
                 <div class="fw-bold text-uppercase text-dark mt-1" style="font-size: 8.5pt;">${r.first_name} ${r.last_name}</div>
                 <div class="text-muted mt-1">DOB: <strong>${r.date_of_birth}</strong></div>
                 <div class="text-muted">Sex: <strong>${r.gender}</strong> | Civil: <strong>${r.civil_status || 'Single'}</strong></div>
-                <div class="text-muted">Purok: <strong>${r.puroks ? r.puroks.name : '-'}</strong></div>
+                <div class="text-muted">Purok: <strong>${r.purok_name || '-'}</strong></div>
               </div>
               <img src="${r.qrDataUrl}" class="id-qr">
             </div>
@@ -1624,17 +1622,16 @@ app.post('/api/scanner/verify', authenticateToken, requireRole(['Super Admin', '
   const { qr_token } = req.body;
   const settings = await getSettings();
 
-  const [resRows] = await pool.query(`
-    SELECT r.*, p.name as purok_name 
-    FROM residents r 
+  const [resRows] = await db.execute(`
+    SELECT r.*, p.name as purok_name FROM residents r 
     LEFT JOIN puroks p ON r.purok_id = p.id 
-    WHERE r.qr_token = ? OR r.id = ?
+    WHERE r.qr_token = ? OR r.id = ? LIMIT 1
   `, [qr_token, qr_token]);
-  const resident = resRows[0] ? { ...resRows[0], puroks: { name: resRows[0].purok_name } } : null;
+  const resident = resRows[0];
 
   let resultHtml = '';
   if (resident) {
-    const [certRows] = await pool.query('SELECT * FROM certificate_requests WHERE resident_id = ? AND status = "READY_FOR_RELEASE" LIMIT 1', [resident.id]);
+    const [certRows] = await db.execute('SELECT * FROM certificate_requests WHERE resident_id = ? AND status = "READY_FOR_RELEASE" LIMIT 1', [resident.id]);
     const cert = certRows[0];
 
     resultHtml = `
@@ -1650,7 +1647,7 @@ app.post('/api/scanner/verify', authenticateToken, requireRole(['Super Admin', '
           </div>
           <div class="col-md-8">
             <p class="m-0"><strong>Address:</strong> ${resident.address}</p>
-            <p class="m-0"><strong>Purok:</strong> ${resident.puroks ? resident.puroks.name : '-'}</p>
+            <p class="m-0"><strong>Purok:</strong> ${resident.purok_name || '-'}</p>
             <p class="m-0"><strong>Status:</strong> <span class="badge bg-success">${resident.resident_status}</span></p>
 
             ${cert ? `
@@ -1686,13 +1683,11 @@ app.post('/api/scanner/verify', authenticateToken, requireRole(['Super Admin', '
 // ==========================================
 app.get('/admin/seniors', authenticateToken, requireRole(['Super Admin', 'Barangay Admin', 'Barangay Secretary', 'Barangay Staff']), async (req, res) => {
   const settings = await getSettings();
-  const [senRows] = await pool.query(`
-    SELECT r.*, p.name as purok_name 
-    FROM residents r 
+  const [seniors] = await db.execute(`
+    SELECT r.*, p.name as purok_name FROM residents r 
     LEFT JOIN puroks p ON r.purok_id = p.id 
     WHERE r.is_senior_citizen = TRUE AND r.resident_status = 'Active'
   `);
-  const seniors = senRows.map(r => ({ ...r, puroks: { name: r.purok_name } }));
 
   const html = `
     <div class="card card-custom p-4">
@@ -1716,7 +1711,7 @@ app.get('/admin/seniors', authenticateToken, requireRole(['Super Admin', 'Barang
                   <td class="fw-bold text-primary-blue">${s.resident_number}</td>
                   <td class="fw-semibold">${s.first_name} ${s.last_name}</td>
                   <td><span class="badge bg-accent-green text-white">${age} yrs old</span></td>
-                  <td>${s.puroks ? s.puroks.name : '-'}</td>
+                  <td>${s.purok_name || '-'}</td>
                   <td>${s.contact_number || '-'}</td>
                 </tr>
               `;
@@ -1732,13 +1727,11 @@ app.get('/admin/seniors', authenticateToken, requireRole(['Super Admin', 'Barang
 
 app.get('/admin/pwds', authenticateToken, requireRole(['Super Admin', 'Barangay Admin', 'Barangay Secretary', 'Barangay Staff']), async (req, res) => {
   const settings = await getSettings();
-  const [pwdRows] = await pool.query(`
-    SELECT r.*, p.name as purok_name 
-    FROM residents r 
+  const [pwds] = await db.execute(`
+    SELECT r.*, p.name as purok_name FROM residents r 
     LEFT JOIN puroks p ON r.purok_id = p.id 
     WHERE r.is_pwd = TRUE AND r.resident_status = 'Active'
   `);
-  const pwds = pwdRows.map(p => ({ ...p, puroks: { name: p.purok_name } }));
 
   const html = `
     <div class="card card-custom p-4">
@@ -1759,7 +1752,7 @@ app.get('/admin/pwds', authenticateToken, requireRole(['Super Admin', 'Barangay 
                 <td class="fw-bold text-primary-blue">${p.resident_number}</td>
                 <td class="fw-semibold">${p.first_name} ${p.last_name}</td>
                 <td>${p.disability_details || 'Unspecified'}</td>
-                <td>${p.puroks ? p.puroks.name : '-'}</td>
+                <td>${p.purok_name || '-'}</td>
               </tr>
             `).join('') || '<tr><td colspan="4" class="text-center py-4 text-muted">No PWD records registered.</td></tr>'}
           </tbody>
@@ -1773,13 +1766,11 @@ app.get('/admin/pwds', authenticateToken, requireRole(['Super Admin', 'Barangay 
 
 app.get('/admin/solo-parents', authenticateToken, requireRole(['Super Admin', 'Barangay Admin', 'Barangay Secretary', 'Barangay Staff']), async (req, res) => {
   const settings = await getSettings();
-  const [parentRows] = await pool.query(`
-    SELECT r.*, p.name as purok_name 
-    FROM residents r 
+  const [parents] = await db.execute(`
+    SELECT r.*, p.name as purok_name FROM residents r 
     LEFT JOIN puroks p ON r.purok_id = p.id 
     WHERE r.is_solo_parent = TRUE AND r.resident_status = 'Active'
   `);
-  const parents = parentRows.map(p => ({ ...p, puroks: { name: p.purok_name } }));
 
   const html = `
     <div class="card card-custom p-4">
@@ -1800,7 +1791,7 @@ app.get('/admin/solo-parents', authenticateToken, requireRole(['Super Admin', 'B
                 <td class="fw-bold text-primary-blue">${p.resident_number}</td>
                 <td class="fw-semibold">${p.first_name} ${p.last_name}</td>
                 <td>${p.solo_parent_details || 'N/A'}</td>
-                <td>${p.puroks ? p.puroks.name : '-'}</td>
+                <td>${p.purok_name || '-'}</td>
               </tr>
             `).join('') || '<tr><td colspan="4" class="text-center py-4 text-muted">No solo parent records registered.</td></tr>'}
           </tbody>
@@ -1817,7 +1808,7 @@ app.get('/admin/solo-parents', authenticateToken, requireRole(['Super Admin', 'B
 // ==========================================
 app.get('/admin/blotters', authenticateToken, requireRole(['Super Admin', 'Barangay Admin', 'Barangay Secretary', 'Barangay Staff']), async (req, res) => {
   const settings = await getSettings();
-  const [blotters] = await pool.query('SELECT * FROM complaints ORDER BY created_at DESC');
+  const [blotters] = await db.execute('SELECT * FROM complaints ORDER BY created_at DESC');
 
   const html = `
     <div class="card card-custom p-4">
@@ -1855,6 +1846,7 @@ app.get('/admin/blotters', authenticateToken, requireRole(['Super Admin', 'Baran
       </div>
     </div>
 
+    <!-- Modal Add Blotter -->
     <div class="modal fade" id="addBlotterModal" tabindex="-1">
       <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -1887,9 +1879,7 @@ app.get('/admin/blotters', authenticateToken, requireRole(['Super Admin', 'Baran
 app.post('/api/admin/blotter/add', authenticateToken, requireRole(['Super Admin', 'Barangay Admin', 'Barangay Secretary']), async (req, res) => {
   const { complainant_name, respondent_name, incident_date, location, description } = req.body;
   const case_number = `BLOT-${Date.now().toString().slice(-6)}`;
-  await pool.query('INSERT INTO complaints (case_number, complainant_name, respondent_name, incident_date, location, description, status) VALUES (?, ?, ?, ?, ?, ?, ?)', [
-    case_number, complainant_name, respondent_name, incident_date, location, description, 'INVESTIGATION'
-  ]);
+  await db.execute('INSERT INTO complaints (case_number, complainant_name, respondent_name, incident_date, location, description, status) VALUES (?, ?, ?, ?, ?, ?, "INVESTIGATION")', [case_number, complainant_name, respondent_name, incident_date, location, description]);
   res.redirect('/admin/blotters');
 });
 
@@ -1898,13 +1888,11 @@ app.post('/api/admin/blotter/add', authenticateToken, requireRole(['Super Admin'
 // ==========================================
 app.get('/admin/assistance', authenticateToken, requireRole(['Super Admin', 'Barangay Admin', 'Barangay Secretary', 'Barangay Staff']), async (req, res) => {
   const settings = await getSettings();
-  const [reqRows] = await pool.query(`
-    SELECT a.*, r.first_name, r.last_name 
-    FROM assistance_requests a 
+  const [requests] = await db.execute(`
+    SELECT a.*, r.first_name, r.last_name FROM assistance_requests a 
     LEFT JOIN residents r ON a.resident_id = r.id 
     ORDER BY a.created_at DESC
   `);
-  const requests = reqRows.map(r => ({ ...r, residents: { first_name: r.first_name, last_name: r.last_name } }));
 
   const html = `
     <div class="card card-custom p-4">
@@ -1925,7 +1913,7 @@ app.get('/admin/assistance', authenticateToken, requireRole(['Super Admin', 'Bar
             ${(requests || []).map(r => `
               <tr>
                 <td class="fw-bold text-primary-blue">${r.request_number}</td>
-                <td>${r.residents ? `${r.residents.first_name} ${r.residents.last_name}` : 'Unknown'}</td>
+                <td>${r.first_name ? `${r.first_name} ${r.last_name}` : 'Unknown'}</td>
                 <td><span class="badge bg-info text-dark">${r.assistance_type}</span></td>
                 <td>${r.details}</td>
                 <td><span class="badge bg-warning text-dark">${r.status}</span></td>
@@ -1946,7 +1934,7 @@ app.get('/admin/assistance', authenticateToken, requireRole(['Super Admin', 'Bar
 });
 
 app.get('/api/admin/assistance/approve/:id', authenticateToken, requireRole(['Super Admin', 'Barangay Admin']), async (req, res) => {
-  await pool.query('UPDATE assistance_requests SET status = "APPROVED" WHERE id = ?', [req.params.id]);
+  await db.execute('UPDATE assistance_requests SET status = "APPROVED" WHERE id = ?', [req.params.id]);
   res.redirect('/admin/assistance');
 });
 
@@ -1955,13 +1943,11 @@ app.get('/api/admin/assistance/approve/:id', authenticateToken, requireRole(['Su
 // ==========================================
 app.get('/admin/appointments', authenticateToken, requireRole(['Super Admin', 'Barangay Admin', 'Barangay Secretary', 'Barangay Staff']), async (req, res) => {
   const settings = await getSettings();
-  const [apptRows] = await pool.query(`
-    SELECT a.*, r.first_name, r.last_name 
-    FROM appointments a 
+  const [appointments] = await db.execute(`
+    SELECT a.*, r.first_name, r.last_name FROM appointments a 
     LEFT JOIN residents r ON a.resident_id = r.id 
     ORDER BY a.created_at DESC
   `);
-  const appointments = apptRows.map(a => ({ ...a, residents: { first_name: a.first_name, last_name: a.last_name } }));
 
   const html = `
     <div class="card card-custom p-4">
@@ -1981,7 +1967,7 @@ app.get('/admin/appointments', authenticateToken, requireRole(['Super Admin', 'B
             ${(appointments || []).map(a => `
               <tr>
                 <td class="fw-bold text-primary-blue">${a.appointment_number}</td>
-                <td>${a.residents ? `${a.residents.first_name} ${a.residents.last_name}` : 'Unknown'}</td>
+                <td>${a.first_name ? `${a.first_name} ${a.last_name}` : 'Unknown'}</td>
                 <td>${a.service_requested}</td>
                 <td>${a.appointment_date} at ${a.appointment_time}</td>
                 <td><span class="badge bg-primary text-white">${a.status}</span></td>
@@ -2001,7 +1987,7 @@ app.get('/admin/appointments', authenticateToken, requireRole(['Super Admin', 'B
 // ==========================================
 app.get('/admin/announcements', authenticateToken, requireRole(['Super Admin', 'Barangay Admin', 'Barangay Secretary']), async (req, res) => {
   const settings = await getSettings();
-  const [announcements] = await pool.query('SELECT * FROM announcements ORDER BY created_at DESC');
+  const [announcements] = await db.execute('SELECT * FROM announcements ORDER BY created_at DESC');
 
   const html = `
     <div class="card card-custom p-4">
@@ -2024,6 +2010,7 @@ app.get('/admin/announcements', authenticateToken, requireRole(['Super Admin', '
       </div>
     </div>
 
+    <!-- Modal Add Announcement -->
     <div class="modal fade" id="addAnnouncementModal" tabindex="-1">
       <div class="modal-dialog">
         <div class="modal-content">
@@ -2051,15 +2038,13 @@ app.get('/admin/announcements', authenticateToken, requireRole(['Super Admin', '
 
 app.post('/api/admin/announcement/add', authenticateToken, requireRole(['Super Admin', 'Barangay Admin']), async (req, res) => {
   const { title, priority, content } = req.body;
-  await pool.query('INSERT INTO announcements (title, priority, content, created_by) VALUES (?, ?, ?, ?)', [
-    title, priority, content, req.user.id
-  ]);
+  await db.execute('INSERT INTO announcements (title, priority, content, created_by) VALUES (?, ?, ?, ?)', [title, priority, content, req.user.id]);
   res.redirect('/admin/announcements');
 });
 
 app.get('/admin/events', authenticateToken, requireRole(['Super Admin', 'Barangay Admin', 'Barangay Secretary']), async (req, res) => {
   const settings = await getSettings();
-  const [events] = await pool.query('SELECT * FROM events ORDER BY event_date ASC');
+  const [events] = await db.execute('SELECT * FROM events ORDER BY event_date ASC');
 
   const html = `
     <div class="card card-custom p-4">
@@ -2082,6 +2067,7 @@ app.get('/admin/events', authenticateToken, requireRole(['Super Admin', 'Baranga
       </div>
     </div>
 
+    <!-- Modal Add Event -->
     <div class="modal fade" id="addEventModal" tabindex="-1">
       <div class="modal-dialog">
         <div class="modal-content">
@@ -2111,9 +2097,7 @@ app.get('/admin/events', authenticateToken, requireRole(['Super Admin', 'Baranga
 
 app.post('/api/admin/event/add', authenticateToken, requireRole(['Super Admin', 'Barangay Admin']), async (req, res) => {
   const { event_name, event_date, event_time, location, description } = req.body;
-  await pool.query('INSERT INTO events (event_name, event_date, event_time, location, description) VALUES (?, ?, ?, ?, ?)', [
-    event_name, event_date, event_time, location, description
-  ]);
+  await db.execute('INSERT INTO events (event_name, event_date, event_time, location, description) VALUES (?, ?, ?, ?, ?)', [event_name, event_date, event_time, location, description]);
   res.redirect('/admin/events');
 });
 
@@ -2122,7 +2106,7 @@ app.post('/api/admin/event/add', authenticateToken, requireRole(['Super Admin', 
 // ==========================================
 app.get('/admin/officials', authenticateToken, requireRole(['Super Admin', 'Barangay Admin', 'Barangay Secretary']), async (req, res) => {
   const settings = await getSettings();
-  const [officials] = await pool.query('SELECT * FROM barangay_officials');
+  const [officials] = await db.execute('SELECT * FROM barangay_officials');
 
   const html = `
     <div class="card card-custom p-4">
@@ -2151,6 +2135,7 @@ app.get('/admin/officials', authenticateToken, requireRole(['Super Admin', 'Bara
       </div>
     </div>
 
+    <!-- Modal Add Official -->
     <div class="modal fade" id="addOfficialModal" tabindex="-1">
       <div class="modal-dialog">
         <div class="modal-content">
@@ -2194,7 +2179,7 @@ app.post('/api/admin/official/add', authenticateToken, requireRole(['Super Admin
   if (req.file) {
     photo_url = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
   }
-  await pool.query('INSERT INTO barangay_officials (name, position, photo_url) VALUES (?, ?, ?)', [name, position, photo_url]);
+  await db.execute('INSERT INTO barangay_officials (name, position, photo_url) VALUES (?, ?, ?)', [name, position, photo_url]);
   res.redirect('/admin/officials');
 });
 
@@ -2202,7 +2187,7 @@ app.post('/api/admin/official/upload-photo/:id', authenticateToken, requireRole(
   try {
     if (!req.file) return res.status(400).send('No file uploaded.');
     const base64Data = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
-    await pool.query('UPDATE barangay_officials SET photo_url = ? WHERE id = ?', [base64Data, req.params.id]);
+    await db.execute('UPDATE barangay_officials SET photo_url = ? WHERE id = ?', [base64Data, req.params.id]);
     res.redirect('/admin/officials');
   } catch (err) {
     res.status(500).send('Error uploading official picture: ' + err.message);
@@ -2211,7 +2196,7 @@ app.post('/api/admin/official/upload-photo/:id', authenticateToken, requireRole(
 
 app.get('/api/admin/official/delete/:id', authenticateToken, requireRole(['Super Admin', 'Barangay Admin']), async (req, res) => {
   try {
-    await pool.query('DELETE FROM barangay_officials WHERE id = ?', [req.params.id]);
+    await db.execute('DELETE FROM barangay_officials WHERE id = ?', [req.params.id]);
     res.redirect('/admin/officials');
   } catch (err) {
     res.status(500).send('Error deleting official: ' + err.message);
@@ -2223,7 +2208,7 @@ app.get('/api/admin/official/delete/:id', authenticateToken, requireRole(['Super
 // ==========================================
 app.get('/admin/users', authenticateToken, requireRole(['Super Admin', 'Barangay Admin']), async (req, res) => {
   const settings = await getSettings();
-  const [users] = await pool.query('SELECT * FROM users');
+  const [users] = await db.execute('SELECT * FROM users');
 
   const html = `
     <div class="card card-custom p-4">
@@ -2266,6 +2251,7 @@ app.get('/admin/users', authenticateToken, requireRole(['Super Admin', 'Barangay
       </div>
     </div>
 
+    <!-- Modal Add User -->
     <div class="modal fade" id="addUserModal" tabindex="-1">
       <div class="modal-dialog">
         <div class="modal-content">
@@ -2304,15 +2290,13 @@ app.post('/api/admin/user/add', authenticateToken, requireRole(['Super Admin', '
   const { full_name, username, email, password, role } = req.body;
   const salt = await bcrypt.genSalt(10);
   const password_hash = await bcrypt.hash(password, salt);
-  await pool.query('INSERT INTO users (full_name, username, email, password_hash, role, status) VALUES (?, ?, ?, ?, ?, ?)', [
-    full_name, username, email, password_hash, role, 'Active'
-  ]);
+  await db.execute('INSERT INTO users (full_name, username, email, password_hash, role, status) VALUES (?, ?, ?, ?, ?, "Active")', [full_name, username, email, password_hash, role]);
   res.redirect('/admin/users');
 });
 
 app.get('/api/admin/user/toggle/:id', authenticateToken, requireRole(['Super Admin', 'Barangay Admin']), async (req, res) => {
   const { status } = req.query;
-  await pool.query('UPDATE users SET status = ? WHERE id = ?', [status, req.params.id]);
+  await db.execute('UPDATE users SET status = ? WHERE id = ?', [status, req.params.id]);
   res.redirect('/admin/users');
 });
 
@@ -2323,15 +2307,15 @@ app.get('/admin/reports', authenticateToken, requireRole(['Super Admin', 'Barang
   const settings = await getSettings();
 
   const [
-    [[totRes]],
-    [[maleCount]],
-    [[femaleCount]],
-    [[seniorCount]]
+    [[{ count: totalRes }]],
+    [[{ count: maleCount }]],
+    [[{ count: femaleCount }]],
+    [[{ count: seniorCount }]]
   ] = await Promise.all([
-    pool.query('SELECT COUNT(*) as count FROM residents WHERE resident_status = "Active"'),
-    pool.query('SELECT COUNT(*) as count FROM residents WHERE resident_status = "Active" AND gender = "Male"'),
-    pool.query('SELECT COUNT(*) as count FROM residents WHERE resident_status = "Active" AND gender = "Female"'),
-    pool.query('SELECT COUNT(*) as count FROM residents WHERE resident_status = "Active" AND is_senior_citizen = TRUE')
+    db.execute('SELECT COUNT(*) as count FROM residents WHERE resident_status = "Active"'),
+    db.execute('SELECT COUNT(*) as count FROM residents WHERE resident_status = "Active" AND gender = "Male"'),
+    db.execute('SELECT COUNT(*) as count FROM residents WHERE resident_status = "Active" AND gender = "Female"'),
+    db.execute('SELECT COUNT(*) as count FROM residents WHERE resident_status = "Active" AND is_senior_citizen = TRUE')
   ]);
 
   const html = `
@@ -2345,25 +2329,25 @@ app.get('/admin/reports', authenticateToken, requireRole(['Super Admin', 'Barang
         <div class="col-md-3">
           <div class="p-3 bg-light-blue rounded text-center border">
             <h6 class="text-muted fw-bold">TOTAL POPULATION</h6>
-            <h2 class="text-primary-blue fw-bold">${totRes.count || 0}</h2>
+            <h2 class="text-primary-blue fw-bold">${totalRes || 0}</h2>
           </div>
         </div>
         <div class="col-md-3">
           <div class="p-3 bg-light-green rounded text-center border">
             <h6 class="text-muted fw-bold">MALE RESIDENTS</h6>
-            <h2 class="text-accent-green fw-bold">${maleCount.count || 0}</h2>
+            <h2 class="text-accent-green fw-bold">${maleCount || 0}</h2>
           </div>
         </div>
         <div class="col-md-3">
           <div class="p-3 bg-light-blue rounded text-center border">
             <h6 class="text-muted fw-bold">FEMALE RESIDENTS</h6>
-            <h2 class="text-primary-blue fw-bold">${femaleCount.count || 0}</h2>
+            <h2 class="text-primary-blue fw-bold">${femaleCount || 0}</h2>
           </div>
         </div>
         <div class="col-md-3">
           <div class="p-3 bg-light-green rounded text-center border">
             <h6 class="text-muted fw-bold">SENIOR CITIZENS</h6>
-            <h2 class="text-accent-green fw-bold">${seniorCount.count || 0}</h2>
+            <h2 class="text-accent-green fw-bold">${seniorCount || 0}</h2>
           </div>
         </div>
       </div>
@@ -2378,13 +2362,11 @@ app.get('/admin/reports', authenticateToken, requireRole(['Super Admin', 'Barang
 // ==========================================
 app.get('/admin/activity-logs', authenticateToken, requireRole(['Super Admin', 'Barangay Admin']), async (req, res) => {
   const settings = await getSettings();
-  const [logRows] = await pool.query(`
-    SELECT l.*, u.full_name as user_full_name 
-    FROM user_activity_logs l 
+  const [logs] = await db.execute(`
+    SELECT l.*, u.full_name FROM user_activity_logs l 
     LEFT JOIN users u ON l.user_id = u.id 
     ORDER BY l.created_at DESC LIMIT 50
   `);
-  const logs = logRows.map(l => ({ ...l, users: { full_name: l.user_full_name } }));
 
   const html = `
     <div class="card card-custom p-4">
@@ -2403,7 +2385,7 @@ app.get('/admin/activity-logs', authenticateToken, requireRole(['Super Admin', '
             ${(logs || []).map(l => `
               <tr>
                 <td class="small text-muted">${new Date(l.created_at).toLocaleString()}</td>
-                <td class="fw-semibold">${l.users ? l.users.full_name : 'System'}</td>
+                <td class="fw-semibold">${l.full_name || 'System'}</td>
                 <td><span class="badge bg-primary-blue text-white">${l.action}</span></td>
                 <td class="small">${l.details || '-'}</td>
               </tr>
@@ -2477,38 +2459,38 @@ app.post('/api/admin/settings/update', authenticateToken, requireRole(['Super Ad
   const { barangay_name, municipality, province, barangay_captain, contact_number } = req.body;
   const settings = await getSettings();
 
-  let logoUrl = settings.barangay_logo;
-  let sigUrl = settings.captain_signature;
+  let barangay_logo = settings.barangay_logo;
+  let captain_signature = settings.captain_signature;
 
   if (req.files && req.files['logo']) {
     const logoFile = req.files['logo'][0];
-    logoUrl = `data:${logoFile.mimetype};base64,${logoFile.buffer.toString('base64')}`;
+    barangay_logo = `data:${logoFile.mimetype};base64,${logoFile.buffer.toString('base64')}`;
   }
 
   if (req.files && req.files['signature']) {
     const sigFile = req.files['signature'][0];
-    sigUrl = `data:${sigFile.mimetype};base64,${sigFile.buffer.toString('base64')}`;
+    captain_signature = `data:${sigFile.mimetype};base64,${sigFile.buffer.toString('base64')}`;
   }
 
-  await pool.query('UPDATE system_settings SET barangay_name = ?, municipality = ?, province = ?, barangay_captain = ?, contact_number = ?, barangay_logo = ?, captain_signature = ?, updated_at = NOW() WHERE id = ?', [
-    barangay_name, municipality, province, barangay_captain, contact_number, logoUrl, sigUrl, settings.id
-  ]);
+  await db.execute(
+    'UPDATE system_settings SET barangay_name = ?, municipality = ?, province = ?, barangay_captain = ?, contact_number = ?, barangay_logo = ?, captain_signature = ?, updated_at = NOW() WHERE id = ?',
+    [barangay_name, municipality, province, barangay_captain, contact_number, barangay_logo, captain_signature, settings.id]
+  );
   res.redirect('/admin/settings');
 });
 
 // ==========================================
-// ROUTE 20: RESIDENT PORTAL & PROFILE
+// ROUTE 20: RESIDENT PORTAL
 // ==========================================
 app.get('/resident/dashboard', authenticateToken, requireRole(['Resident']), async (req, res) => {
   const settings = await getSettings();
-  const [resRows] = await pool.query(`
-    SELECT r.*, p.name as purok_name 
-    FROM residents r 
+  const [resRows] = await db.execute(`
+    SELECT r.*, p.name as purok_name FROM residents r 
     LEFT JOIN puroks p ON r.purok_id = p.id 
-    WHERE r.id = ?
+    WHERE r.id = ? LIMIT 1
   `, [req.user.resident_id]);
-  const resident = resRows[0] ? { ...resRows[0], puroks: { name: resRows[0].purok_name } } : null;
-  const [announcements] = await pool.query('SELECT * FROM announcements ORDER BY created_at DESC LIMIT 3');
+  const resident = resRows[0];
+  const [announcements] = await db.execute('SELECT * FROM announcements ORDER BY created_at DESC LIMIT 3');
 
   const html = `
     <div class="row g-3 mb-4">
@@ -2536,9 +2518,9 @@ app.get('/resident/dashboard', authenticateToken, requireRole(['Resident']), asy
       <div class="col-md-4">
         <div class="card card-custom p-4 text-center">
           <h5 class="fw-bold text-primary-blue mb-3">My Digital Resident ID</h5>
-          <img src="${resident && resident.photo_url ? resident.photo_url : 'https://via.placeholder.com/100'}" class="rounded-circle mx-auto mb-2" style="width:80px; height:80px; object-fit:cover; border: none;">
-          <h6 class="fw-bold m-0">${resident ? resident.first_name : ''} ${resident ? resident.last_name : ''}</h6>
-          <span class="text-primary-blue small fw-bold">${resident ? resident.resident_number : ''}</span>
+          <img src="${resident.photo_url || 'https://via.placeholder.com/100'}" class="rounded-circle mx-auto mb-2" style="width:80px; height:80px; object-fit:cover; border: none;">
+          <h6 class="fw-bold m-0">${resident.first_name} ${resident.last_name}</h6>
+          <span class="text-primary-blue small fw-bold">${resident.resident_number}</span>
           <div class="mt-3">
             <a href="/resident/digital-id" class="btn btn-sm btn-accent-custom w-100 fw-bold text-white"><i class="bi bi-qr-code me-1"></i> View Full Digital ID</a>
             <a href="/resident/profile" class="btn btn-sm btn-outline-primary w-100 fw-bold mt-2"><i class="bi bi-camera me-1"></i> Change Picture</a>
@@ -2553,13 +2535,12 @@ app.get('/resident/dashboard', authenticateToken, requireRole(['Resident']), asy
 
 app.get('/resident/profile', authenticateToken, requireRole(['Resident']), async (req, res) => {
   const settings = await getSettings();
-  const [resRows] = await pool.query(`
-    SELECT r.*, p.name as purok_name 
-    FROM residents r 
+  const [resRows] = await db.execute(`
+    SELECT r.*, p.name as purok_name FROM residents r 
     LEFT JOIN puroks p ON r.purok_id = p.id 
-    WHERE r.id = ?
+    WHERE r.id = ? LIMIT 1
   `, [req.user.resident_id]);
-  const resident = resRows[0] ? { ...resRows[0], puroks: { name: resRows[0].purok_name } } : null;
+  const resident = resRows[0];
 
   const html = `
     <div class="card card-custom p-4" style="max-width: 720px; margin: auto;">
@@ -2591,7 +2572,7 @@ app.get('/resident/profile', authenticateToken, requireRole(['Resident']), async
         <div class="col-6"><strong>Date of Birth:</strong> ${resident.date_of_birth}</div>
         <div class="col-6"><strong>Gender:</strong> ${resident.gender}</div>
         <div class="col-6"><strong>Civil Status:</strong> ${resident.civil_status}</div>
-        <div class="col-6"><strong>Purok Zone:</strong> ${resident.puroks ? resident.puroks.name : '-'}</div>
+        <div class="col-6"><strong>Purok Zone:</strong> ${resident.purok_name || '-'}</div>
         <div class="col-12"><strong>Address:</strong> ${resident.address}</div>
       </div>
 
@@ -2618,6 +2599,7 @@ app.get('/resident/profile', authenticateToken, requireRole(['Resident']), async
               <div class="mb-3">
                 <label class="form-label fw-semibold">Select Photo File (PNG, JPG, JPEG) *</label>
                 <input type="file" name="photo" class="form-control" accept="image/*" required>
+                <small class="text-muted d-block mt-1">Please select a clear front-facing photograph of yourself.</small>
               </div>
             </div>
             <div class="modal-footer">
@@ -2638,7 +2620,7 @@ app.post('/api/resident/upload-photo', authenticateToken, requireRole(['Resident
     if (!req.file) return res.status(400).send('<script>alert("Please select an image file to upload."); window.history.back();</script>');
     const base64Data = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
 
-    await pool.query('UPDATE residents SET photo_url = ? WHERE id = ?', [base64Data, req.user.resident_id]);
+    await db.execute('UPDATE residents SET photo_url = ? WHERE id = ?', [base64Data, req.user.resident_id]);
     await logActivity(req.user.id, 'Resident Photo Self-Update', `Resident updated their profile picture.`);
     res.redirect('/resident/profile');
   } catch (err) {
@@ -2649,23 +2631,20 @@ app.post('/api/resident/upload-photo', authenticateToken, requireRole(['Resident
 
 app.post('/api/resident/request-profile-update', authenticateToken, requireRole(['Resident']), async (req, res) => {
   const { reason } = req.body;
-  await pool.query('INSERT INTO profile_change_requests (resident_id, requested_changes, reason) VALUES (?, ?, ?)', [
-    req.user.resident_id, JSON.stringify({}), reason
-  ]);
+  await db.execute('INSERT INTO profile_change_requests (resident_id, requested_changes, reason) VALUES (?, "{}", ?)', [req.user.resident_id, reason]);
   res.redirect('/resident/profile');
 });
 
 app.get('/resident/digital-id', authenticateToken, requireRole(['Resident']), async (req, res) => {
   const settings = await getSettings();
-  const [resRows] = await pool.query(`
-    SELECT r.*, p.name as purok_name 
-    FROM residents r 
+  const [resRows] = await db.execute(`
+    SELECT r.*, p.name as purok_name FROM residents r 
     LEFT JOIN puroks p ON r.purok_id = p.id 
-    WHERE r.id = ?
+    WHERE r.id = ? LIMIT 1
   `, [req.user.resident_id]);
-  const resident = resRows[0] ? { ...resRows[0], puroks: { name: resRows[0].purok_name } } : null;
+  const resident = resRows[0];
 
-  const qrDataUrl = await QRCode.toDataURL(resident.qr_token || resident.id, { margin: 0, width: 300 });
+  const qrDataUrl = await QRCode.toDataURL(resident.qr_token || String(resident.id), { margin: 0, width: 300 });
 
   const html = `
     <div class="text-center py-4">
@@ -2688,7 +2667,7 @@ app.get('/resident/digital-id', authenticateToken, requireRole(['Resident']), as
             <div class="fw-bold text-uppercase text-dark mt-1" style="font-size: 9pt;">${resident.first_name} ${resident.last_name}</div>
             <div class="text-muted mt-1">DOB: <strong>${resident.date_of_birth}</strong></div>
             <div class="text-muted">Sex: <strong>${resident.gender}</strong> | Civil: <strong>${resident.civil_status || 'Single'}</strong></div>
-            <div class="text-muted">Purok: <strong>${resident.puroks ? resident.puroks.name : '-'}</strong></div>
+            <div class="text-muted">Purok: <strong>${resident.purok_name || '-'}</strong></div>
           </div>
           <img src="${qrDataUrl}" class="id-qr" style="width: 1.1in; height: 1.1in;">
         </div>
@@ -2711,7 +2690,7 @@ app.get('/resident/digital-id', authenticateToken, requireRole(['Resident']), as
 
 app.get('/resident/certificates', authenticateToken, requireRole(['Resident']), async (req, res) => {
   const settings = await getSettings();
-  const [certs] = await pool.query('SELECT * FROM certificate_requests WHERE resident_id = ? ORDER BY created_at DESC', [req.user.resident_id]);
+  const [certs] = await db.execute('SELECT * FROM certificate_requests WHERE resident_id = ? ORDER BY created_at DESC', [req.user.resident_id]);
 
   const html = `
     <div class="card card-custom p-4">
@@ -2779,15 +2758,13 @@ app.get('/resident/certificates', authenticateToken, requireRole(['Resident']), 
 app.post('/api/resident/certificate/request', authenticateToken, requireRole(['Resident']), async (req, res) => {
   const { certificate_type, purpose } = req.body;
   const request_number = `REQ-${Date.now().toString().slice(-6)}`;
-  await pool.query('INSERT INTO certificate_requests (request_number, resident_id, certificate_type, purpose, status) VALUES (?, ?, ?, ?, ?)', [
-    request_number, req.user.resident_id, certificate_type, purpose, 'SUBMITTED'
-  ]);
+  await db.execute('INSERT INTO certificate_requests (request_number, resident_id, certificate_type, purpose, status) VALUES (?, ?, ?, ?, "SUBMITTED")', [request_number, req.user.resident_id, certificate_type, purpose]);
   res.redirect('/resident/certificates');
 });
 
 app.get('/resident/appointments', authenticateToken, requireRole(['Resident']), async (req, res) => {
   const settings = await getSettings();
-  const [appts] = await pool.query('SELECT * FROM appointments WHERE resident_id = ?', [req.user.resident_id]);
+  const [appts] = await db.execute('SELECT * FROM appointments WHERE resident_id = ?', [req.user.resident_id]);
 
   const html = `
     <div class="card card-custom p-4">
@@ -2848,9 +2825,7 @@ app.get('/resident/appointments', authenticateToken, requireRole(['Resident']), 
 app.post('/api/resident/appointment/book', authenticateToken, requireRole(['Resident']), async (req, res) => {
   const { service_requested, appointment_date, appointment_time } = req.body;
   const appointment_number = `APT-${Date.now().toString().slice(-6)}`;
-  await pool.query('INSERT INTO appointments (appointment_number, resident_id, service_requested, appointment_date, appointment_time, status) VALUES (?, ?, ?, ?, ?, ?)', [
-    appointment_number, req.user.resident_id, service_requested, appointment_date, appointment_time, 'PENDING'
-  ]);
+  await db.execute('INSERT INTO appointments (appointment_number, resident_id, service_requested, appointment_date, appointment_time, status) VALUES (?, ?, ?, ?, ?, "PENDING")', [appointment_number, req.user.resident_id, service_requested, appointment_date, appointment_time]);
   res.redirect('/resident/appointments');
 });
 
@@ -2875,13 +2850,14 @@ app.get('/resident/complaints', authenticateToken, requireRole(['Resident']), as
 
 app.post('/api/resident/complaint/submit', authenticateToken, requireRole(['Resident']), async (req, res) => {
   const { respondent_name, incident_date, location, description } = req.body;
-  const [resRows] = await pool.query('SELECT first_name, last_name FROM residents WHERE id = ?', [req.user.resident_id]);
+  const [resRows] = await db.execute('SELECT first_name, last_name FROM residents WHERE id = ? LIMIT 1', [req.user.resident_id]);
   const resData = resRows[0];
   const case_number = `BLOT-${Date.now().toString().slice(-6)}`;
 
-  await pool.query('INSERT INTO complaints (case_number, complainant_id, complainant_name, respondent_name, incident_date, location, description, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [
-    case_number, req.user.resident_id, `${resData.first_name} ${resData.last_name}`, respondent_name, incident_date, location, description, 'SUBMITTED'
-  ]);
+  await db.execute(
+    'INSERT INTO complaints (case_number, complainant_id, complainant_name, respondent_name, incident_date, location, description, status) VALUES (?, ?, ?, ?, ?, ?, ?, "SUBMITTED")',
+    [case_number, req.user.resident_id, `${resData.first_name} ${resData.last_name}`, respondent_name, incident_date, location, description]
+  );
 
   res.redirect('/resident/dashboard');
 });
@@ -2915,15 +2891,13 @@ app.get('/resident/assistance', authenticateToken, requireRole(['Resident']), as
 app.post('/api/resident/assistance/request', authenticateToken, requireRole(['Resident']), async (req, res) => {
   const { assistance_type, details } = req.body;
   const request_number = `AID-${Date.now().toString().slice(-6)}`;
-  await pool.query('INSERT INTO assistance_requests (request_number, resident_id, assistance_type, details, status) VALUES (?, ?, ?, ?, ?)', [
-    request_number, req.user.resident_id, assistance_type, details, 'PENDING'
-  ]);
+  await db.execute('INSERT INTO assistance_requests (request_number, resident_id, assistance_type, details, status) VALUES (?, ?, ?, ?, "PENDING")', [request_number, req.user.resident_id, assistance_type, details]);
   res.redirect('/resident/dashboard');
 });
 
 app.get('/resident/announcements', authenticateToken, requireRole(['Resident']), async (req, res) => {
   const settings = await getSettings();
-  const [announcements] = await pool.query('SELECT * FROM announcements ORDER BY created_at DESC');
+  const [announcements] = await db.execute('SELECT * FROM announcements ORDER BY created_at DESC');
 
   const html = `
     <div class="card card-custom p-4">
@@ -3012,9 +2986,7 @@ app.get('/resident/feedback', authenticateToken, requireRole(['Resident']), asyn
 
 app.post('/api/resident/feedback/submit', authenticateToken, requireRole(['Resident']), async (req, res) => {
   const { service_type, rating, comments } = req.body;
-  await pool.query('INSERT INTO feedback (resident_id, service_type, rating, comments) VALUES (?, ?, ?, ?)', [
-    req.user.resident_id, service_type, parseInt(rating), comments
-  ]);
+  await db.execute('INSERT INTO feedback (resident_id, service_type, rating, comments) VALUES (?, ?, ?, ?)', [req.user.resident_id, service_type, parseInt(rating), comments]);
   res.redirect('/resident/dashboard');
 });
 
